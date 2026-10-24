@@ -27,6 +27,143 @@ async function speak(text: string): Promise<void> {
   }
 }
 
+function useVoiceChat() {
+  const [isListening, setIsListening] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  const startListening = async (): Promise<string> => {
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      return ''
+    }
+    return new Promise((resolve) => {
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+      chunksRef.current = []
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        try {
+          const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' })
+          const formData = new FormData()
+          formData.append('audio', blob, 'recording.webm')
+          const res = await fetch('/api/listen', { method: 'POST', body: formData })
+          const data = await res.json().catch(() => ({}))
+          resolve(res.ok && typeof data.text === 'string' ? data.text : '')
+        } catch {
+          resolve('')
+        } finally {
+          setIsListening(false)
+        }
+      }
+      mediaRecorder.start()
+      setIsListening(true)
+    })
+  }
+
+  const stopListening = () => {
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop()
+  }
+
+  return { isListening, isSpeaking, setIsSpeaking, startListening, stopListening }
+}
+
+type ChatMessage = { role: 'tutor' | 'student'; text: string }
+
+function VoiceChat({ subject, context }: { subject: string; context: string }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [isOpen, setIsOpen] = useState(false)
+  const [isThinking, setIsThinking] = useState(false)
+  const { isListening, isSpeaking, setIsSpeaking, startListening, stopListening } = useVoiceChat()
+
+  async function handleMicClick() {
+    if (isListening) {
+      stopListening()
+      return
+    }
+    const userText = (await startListening()).trim()
+    if (!userText) return
+    setMessages((prev) => [...prev, { role: 'student', text: userText }])
+
+    setIsThinking(true)
+    let reply = "Sorry, I couldn't answer that right now. Please try again."
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userText, subject, context }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && typeof data.reply === 'string') reply = data.reply
+    } catch {}
+    setIsThinking(false)
+    setMessages((prev) => [...prev, { role: 'tutor', text: reply }])
+    setIsSpeaking(true)
+    await speak(reply)
+    setIsSpeaking(false)
+  }
+
+  if (!isOpen) return (
+    <button
+      onClick={() => setIsOpen(true)}
+      className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-indigo-700 print:hidden"
+    >
+      <Mic className="size-4" />
+      Ask your tutor
+    </button>
+  )
+
+  return (
+    <div role="dialog" aria-label="Voice tutor" className="fixed bottom-6 right-6 z-50 flex w-80 flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl print:hidden">
+      <div className="flex items-center justify-between rounded-t-2xl bg-indigo-600 px-4 py-3">
+        <div className="flex items-center gap-2 text-white">
+          <Mic className="size-4" />
+          <span className="text-sm font-semibold">Voice Tutor</span>
+          {isSpeaking && <span className="text-xs text-indigo-200">Speaking...</span>}
+          {isThinking && <span className="text-xs text-indigo-200">Thinking...</span>}
+        </div>
+        <button onClick={() => { stopListening(); setIsOpen(false) }} aria-label="Close voice tutor" className="text-indigo-200 hover:text-white">
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="flex max-h-64 flex-col gap-2 overflow-y-auto p-4" aria-live="polite">
+        {messages.length === 0 && (
+          <p className="text-center text-sm text-slate-400">
+            Tap the mic and ask me anything about your homework.
+          </p>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+            msg.role === 'tutor'
+              ? 'self-start bg-indigo-50 text-indigo-900'
+              : 'self-end bg-slate-100 text-slate-800'
+          }`}>
+            {msg.text}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-center border-t border-slate-100 p-3">
+        <button
+          onClick={handleMicClick}
+          disabled={isThinking || isSpeaking}
+          className={`flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-semibold transition disabled:opacity-60 ${
+            isListening
+              ? 'animate-pulse bg-red-500 text-white'
+              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+          }`}
+        >
+          <Mic className="size-4" />
+          {isListening ? 'Tap to stop' : 'Ask a question'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 type AppState = 'idle' | 'analyzing' | 'results' | 'practice' | 'exercises'
 type Difficulty = 'easy' | 'medium' | 'hard'
 type Exercise = { number: number; question: string; answer: string; skill: string }
@@ -45,7 +182,6 @@ export default function Page() {
   const [subject, setSubject] = useState('Math')
   const [appState, setAppState] = useState<AppState>('idle')
   const [isDragging, setIsDragging] = useState(false)
-  const [isMicActive, setIsMicActive] = useState(false)
   const [error, setError] = useState('')
 
   const chooseFile = (nextFile?: File) => {
@@ -90,7 +226,7 @@ export default function Page() {
       <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14">
         {appState === 'idle' && <UploadState inputRef={inputRef} file={file} preview={preview} subject={subject} setSubject={setSubject} isDragging={isDragging} setIsDragging={setIsDragging} chooseFile={chooseFile} submit={submit} error={error} />}
         {appState === 'analyzing' && <LoadingState preview={preview} />}
-        {appState === 'results' && <ResultsState preview={preview} isMicActive={isMicActive} setIsMicActive={setIsMicActive} onPractice={() => setAppState('practice')} onExercises={() => setAppState('exercises')} />}
+        {appState === 'results' && <ResultsState preview={preview} onPractice={() => setAppState('practice')} onExercises={() => setAppState('exercises')} />}
         {appState === 'practice' && <PracticeState onBack={() => setAppState('results')} onReset={reset} />}
         {appState === 'exercises' && <ExerciseSheet onBack={() => setAppState('results')} />}
       </div>
@@ -104,8 +240,8 @@ function UploadState({ inputRef, file, preview, subject, setSubject, isDragging,
 
 function LoadingState({ preview }: { preview: string }) { return <section className="mx-auto max-w-2xl text-center"><h1 className="text-2xl font-bold">One moment, I&apos;m looking closely.</h1><p className="mt-2 text-slate-500">StudyBuddy is reviewing your work...</p><div className="relative mt-8 overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"><img src={preview} alt="Homework being reviewed" className="max-h-[28rem] w-full rounded-2xl object-contain" /><div className="absolute inset-3 animate-pulse rounded-2xl bg-indigo-600/20" /></div><div className="mx-auto mt-7 h-2 max-w-md overflow-hidden rounded-full bg-indigo-100"><div className="h-full w-2/3 animate-[progress_1.8s_ease-in-out_infinite] rounded-full bg-indigo-600" /></div></section> }
 
-function ResultsState({ preview, isMicActive, setIsMicActive, onPractice, onExercises }: any) { return <section><div className="mb-8 flex items-end justify-between"><div><p className="text-sm font-semibold text-indigo-600">Review complete</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Here&apos;s what I noticed.</h1></div><span className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 sm:inline-flex">Ready to learn</span></div><div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"><div className="lg:sticky lg:top-6 lg:self-start"><div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"><img src={preview} alt="Uploaded homework" className="max-h-[600px] w-full rounded-2xl object-contain" /></div><p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-400"><Lightbulb className="size-3.5" />Learning happens one step at a time.</p></div><div className="flex flex-col gap-5"><div className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="text-sm font-semibold text-amber-900">Quick summary</p><p className="mt-1 leading-6 text-amber-900/80">You&apos;re on the right track! A couple of small details are keeping this answer from landing.</p></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold">Let&apos;s make it clearer</h2><span className="text-xs font-medium text-slate-400">2 things to review</span></div><div className="flex flex-col gap-4">{corrections.map((item) => <article key={item.mistake} className="rounded-xl border border-slate-200 border-l-4 border-l-red-400 bg-slate-50/70 p-4"><p className="text-sm"><span className="font-semibold text-red-600">Mistake</span><span className="mx-2 text-slate-300">|</span>{item.mistake}</p><p className="mt-2 text-sm"><span className="font-semibold text-emerald-600">Try this</span><span className="mx-2 text-slate-300">|</span>{item.correction}</p><p className="mt-3 text-sm leading-6 text-slate-500">{item.explanation}</p><Button variant="ghost" size="sm" onClick={() => speak(`${item.correction}. ${item.explanation}`)} className="mt-2 px-0 text-indigo-600 hover:bg-transparent hover:text-indigo-700"><Speaker className="mr-2 size-4" />{isMicActive ? 'Playing explanation...' : 'Hear explanation'}</Button></article>)}</div></div><div className="flex flex-col gap-3 sm:flex-row"><Button onClick={onPractice} className="h-12 flex-1 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Practice Now<ChevronRight className="ml-2 size-5" /></Button><Button onClick={onExercises} variant="outline" className="h-12 flex-1 rounded-xl border-indigo-300 text-indigo-700 hover:bg-indigo-50">Generate Exercise Sheet<ChevronRight className="ml-2 size-5" /></Button></div></div></div></section> }
+function ResultsState({ preview, onPractice, onExercises }: any) { const [speakingItem, setSpeakingItem] = useState<string | null>(null); return <section><div className="mb-8 flex items-end justify-between"><div><p className="text-sm font-semibold text-indigo-600">Review complete</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Here&apos;s what I noticed.</h1></div><span className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 sm:inline-flex">Ready to learn</span></div><div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"><div className="lg:sticky lg:top-6 lg:self-start"><div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"><img src={preview} alt="Uploaded homework" className="max-h-[600px] w-full rounded-2xl object-contain" /></div><p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-400"><Lightbulb className="size-3.5" />Learning happens one step at a time.</p></div><div className="flex flex-col gap-5"><div className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="text-sm font-semibold text-amber-900">Quick summary</p><p className="mt-1 leading-6 text-amber-900/80">You&apos;re on the right track! A couple of small details are keeping this answer from landing.</p></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold">Let&apos;s make it clearer</h2><span className="text-xs font-medium text-slate-400">2 things to review</span></div><div className="flex flex-col gap-4">{corrections.map((item) => <article key={item.mistake} className="rounded-xl border border-slate-200 border-l-4 border-l-red-400 bg-slate-50/70 p-4"><p className="text-sm"><span className="font-semibold text-red-600">Mistake</span><span className="mx-2 text-slate-300">|</span>{item.mistake}</p><p className="mt-2 text-sm"><span className="font-semibold text-emerald-600">Try this</span><span className="mx-2 text-slate-300">|</span>{item.correction}</p><p className="mt-3 text-sm leading-6 text-slate-500">{item.explanation}</p><Button variant="ghost" size="sm" disabled={speakingItem !== null} onClick={async () => { setSpeakingItem(item.mistake); await speak(`${item.correction}. ${item.explanation}`); setSpeakingItem(null) }} className="mt-2 px-0 text-indigo-600 hover:bg-transparent hover:text-indigo-700"><Speaker className="mr-2 size-4" />{speakingItem === item.mistake ? 'Playing...' : 'Hear explanation'}</Button></article>)}</div></div><div className="flex flex-col gap-3 sm:flex-row"><Button onClick={onPractice} className="h-12 flex-1 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Practice Now<ChevronRight className="ml-2 size-5" /></Button><Button onClick={onExercises} variant="outline" className="h-12 flex-1 rounded-xl border-indigo-300 text-indigo-700 hover:bg-indigo-50">Generate Exercise Sheet<ChevronRight className="ml-2 size-5" /></Button></div></div></div><VoiceChat subject="Math" context="The student made mistakes with algebra steps" /></section> }
 
-function PracticeState({ onBack }: { onBack: () => void; onReset: () => void }) { const [answer, setAnswer] = useState(''); const [checked, setChecked] = useState(false); return <section className="mx-auto max-w-2xl"><button onClick={onBack} className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"><ChevronLeft className="size-4" />Back to Results</button><p className="text-sm font-semibold text-indigo-600">Practice time</p><h1 className="mt-1 text-3xl font-bold">Try a similar problem.</h1><div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"><p className="text-sm font-medium text-slate-500">Solve for x</p><p className="mt-4 font-mono text-3xl font-semibold">3x + 4 = 19</p><label className="mt-8 block text-sm font-semibold" htmlFor="practice-answer">Your answer</label><input id="practice-answer" value={answer} onChange={(event) => setAnswer(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" placeholder="Type your answer" /><Button onClick={() => { setChecked(true); speak(answer.trim() === '5' ? 'Correct! Great work!' : 'Not quite. Try isolating x by subtracting 4 first.') }} className="mt-4 w-full rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Check answer</Button>{checked && <p className={`mt-4 rounded-xl p-4 text-sm font-medium ${answer.trim() === '5' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{answer.trim() === '5' ? 'Correct. Great work!' : 'Not quite. Try isolating x by subtracting 4 first.'}</p>}</div></section> }
+function PracticeState({ onBack }: { onBack: () => void; onReset: () => void }) { const [answer, setAnswer] = useState(''); const [checked, setChecked] = useState(false); return <section className="mx-auto max-w-2xl"><button onClick={onBack} className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"><ChevronLeft className="size-4" />Back to Results</button><p className="text-sm font-semibold text-indigo-600">Practice time</p><h1 className="mt-1 text-3xl font-bold">Try a similar problem.</h1><div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"><p className="text-sm font-medium text-slate-500">Solve for x</p><p className="mt-4 font-mono text-3xl font-semibold">3x + 4 = 19</p><label className="mt-8 block text-sm font-semibold" htmlFor="practice-answer">Your answer</label><input id="practice-answer" value={answer} onChange={(event) => setAnswer(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" placeholder="Type your answer" /><Button onClick={() => { setChecked(true); speak(answer.trim() === '5' ? 'Correct! Great work!' : 'Not quite. Try isolating x by subtracting 4 first.') }} className="mt-4 w-full rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Check answer</Button>{checked && <p className={`mt-4 rounded-xl p-4 text-sm font-medium ${answer.trim() === '5' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{answer.trim() === '5' ? 'Correct. Great work!' : 'Not quite. Try isolating x by subtracting 4 first.'}</p>}</div><VoiceChat subject="Math" context="The student is practicing algebra" /></section> }
 
 function ExerciseSheet({ onBack }: { onBack: () => void }) { const [difficulty, setDifficulty] = useState<Difficulty>('medium'); const [state, setState] = useState<'idle' | 'loading' | 'ready'>('idle'); const [exercises, setExercises] = useState<Exercise[]>([]); const [openAnswers, setOpenAnswers] = useState<Record<number, boolean>>({}); const generate = async () => { setState('loading'); try { const response = await fetch('/api/exercises', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: 'Math', topic: 'Fractions', weakness: 'Adding fractions with unlike denominators', mistakes: ['added denominators', 'forgot to simplify'], difficulty, count: 5 }) }); if (!response.ok) throw new Error('Unable to create exercises'); const data = await response.json(); setExercises(data.exercises); setState('ready') } catch { setState('idle') } }; return <section className="mx-auto max-w-4xl"><button onClick={onBack} className="mb-6 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"><ChevronLeft className="size-4" />Back to Results</button><div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold text-indigo-600">Personalized practice</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Exercise Sheet</h1></div><span className="w-fit rounded-full bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-800">Targeted practice for: Adding fractions with unlike denominators</span></div><div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm font-semibold text-slate-700">Choose a difficulty</p><div className="mt-3 flex gap-2">{(['easy', 'medium', 'hard'] as Difficulty[]).map((item) => <button key={item} onClick={() => setDifficulty(item)} className={`rounded-full border px-5 py-2 text-sm font-semibold capitalize transition ${difficulty === item ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>{item}</button>)}</div><Button onClick={generate} disabled={state === 'loading'} className="mt-5 h-12 w-full rounded-xl bg-indigo-600 text-base text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700">{state === 'loading' ? <><Loader2 className="mr-2 size-4 animate-spin" />Creating exercises...</> : 'Generate Exercises'}</Button></div>{state === 'loading' && <div className="flex items-center justify-center gap-3 py-16 text-slate-500"><Loader2 className="size-5 animate-spin text-indigo-600" />Gemma 4 is creating your exercises...</div>}{state === 'ready' && <div className="mt-6 flex flex-col gap-4">{exercises.map((exercise) => <article key={exercise.number} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-start gap-4"><span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700">{exercise.number}</span><div className="min-w-0 flex-1"><p className="font-mono text-lg font-semibold leading-8 text-slate-900">{exercise.question}</p><span className="mt-3 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{exercise.skill}</span><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={() => setOpenAnswers((current) => ({ ...current, [exercise.number]: !current[exercise.number] }))} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">{openAnswers[exercise.number] ? 'Hide Answer' : 'Show Answer'}</button><Button variant="outline" size="sm" className="voice-button" onClick={() => speak(exercise.question)}><Mic className="mr-2 size-4" />Read Question</Button></div><div className={`answer-reveal mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 ${openAnswers[exercise.number] ? '' : 'hidden print:block'}`}>Answer: {exercise.answer}</div></div></div></article>)}<Button variant="outline" onClick={() => window.print()} className="mt-3 h-12 border-indigo-300 text-indigo-700 hover:bg-indigo-50 print:hidden">Print / Save as PDF</Button></div>}</section> }
