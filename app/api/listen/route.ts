@@ -13,9 +13,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'audio file is required' }, { status: 400 })
     }
 
+    console.log('Audio received:', audio.type, audio.size, 'bytes')
+
     const form = new FormData()
-    form.append('file', audio, 'recording.webm')
+    // ElevenLabs Scribe accepts webm, mp4, wav, mp3 — send as-is with correct name
+    const ext = audio.type.includes('mp4') ? 'mp4' : audio.type.includes('wav') ? 'wav' : 'webm'
+    form.append('file', audio, `recording.${ext}`)
     form.append('model_id', 'scribe_v1')
+    form.append('language_code', 'en')
 
     const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
       method: 'POST',
@@ -23,16 +28,17 @@ export async function POST(req: NextRequest) {
       body: form,
     })
 
+    const responseText = await res.text()
+    console.log('ElevenLabs STT response:', res.status, responseText)
+
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error('ElevenLabs STT error:', res.status, errorText)
-      return NextResponse.json({ error: errorText }, { status: res.status })
+      return NextResponse.json({ error: responseText }, { status: res.status })
     }
 
-    const data = await res.json()
+    const data = JSON.parse(responseText)
     return NextResponse.json({ text: data.text ?? '' })
   } catch (err) {
     console.error('listen route error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }

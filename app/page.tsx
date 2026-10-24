@@ -31,9 +31,9 @@ type ChatMessage = { role: 'tutor' | 'student'; text: string }
 type VoiceStatus = 'idle' | 'listening' | 'thinking' | 'speaking'
 
 const voiceStatusLabel: Record<VoiceStatus, string> = {
-  idle: 'Tap to ask a question',
-  listening: 'Listening... tap to stop',
-  thinking: 'Thinking...',
+  idle: 'Tap mic → speak → tap again to stop',
+  listening: '🔴 Recording... tap mic to stop',
+  thinking: 'Transcribing...',
   speaking: 'Speaking...',
 }
 
@@ -50,18 +50,38 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function handleRecordingStop(stream: MediaStream) {
+  async function handleRecordingStop(stream: MediaStream, mediaRecorder: MediaRecorder) {
     stream.getTracks().forEach((track) => track.stop())
     setStatus('thinking')
     try {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+      const actualMimeType = mediaRecorder.mimeType || 'audio/webm'
+      const blob = new Blob(chunksRef.current, { type: actualMimeType })
+      console.log('Sending audio blob:', actualMimeType, blob.size, 'bytes')
+
+      if (blob.size < 1000) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'tutor', text: "I couldn't hear that clearly. Tap the mic, speak, then tap again to stop." },
+        ])
+        return
+      }
+
+      const ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm'
       const form = new FormData()
-      form.append('audio', blob, 'recording.webm')
+      form.append('audio', blob, `recording.${ext}`)
 
       const listenRes = await fetch('/api/listen', { method: 'POST', body: form })
       if (!listenRes.ok) throw new Error("I couldn't hear that. Please try again.")
       const { text: userText } = await listenRes.json()
-      if (!userText?.trim()) throw new Error("I didn't catch anything. Try speaking a bit longer.")
+      console.log('Transcribed text:', userText)
+
+      if (!userText?.trim()) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'tutor', text: "I didn't catch that. Please speak clearly and try again." },
+        ])
+        return
+      }
 
       setMessages((prev) => [...prev, { role: 'student', text: userText }])
 
@@ -93,13 +113,20 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : MediaRecorder.isTypeSupported('audio/mp4')
+            ? 'audio/mp4'
+            : ''
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
       mediaRecorderRef.current = mediaRecorder
       chunksRef.current = []
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
-      mediaRecorder.onstop = () => handleRecordingStop(stream)
+      mediaRecorder.onstop = () => handleRecordingStop(stream, mediaRecorder)
       mediaRecorder.start()
       setStatus('listening')
     } catch {
