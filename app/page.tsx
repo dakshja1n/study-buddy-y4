@@ -66,8 +66,8 @@ export default function Page() {
     setAppState('analyzing')
     setError('')
     try {
-      const { docId, imageBase64 } = await uploadHomeworkImage(file, subject)
-      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ docId, imageBase64, imageMimeType: file.type, subject }) })
+      const { docId, imageBase64, imageMimeType } = await uploadHomeworkImage(file, subject)
+      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ docId, imageBase64, imageMimeType, subject }) })
       if (!response.ok) throw new Error('Unable to analyze this submission')
       setAppState('results')
     } catch (submissionError) {
