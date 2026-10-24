@@ -13,4 +13,10 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules
 .next/
+
+# next-pwa generated files
+public/sw.js
+public/sw.js.map
+public/workbox-*.js
+public/workbox-*.js.map
 .DS_Store

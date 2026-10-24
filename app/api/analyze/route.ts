@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import type { Part } from '@google/generative-ai'
-import { getGemmaModel, parseModelJson } from '@/lib/gemma'
+import { generateWithGemma, parseModelJson } from '@/lib/gemma'
+
+const MAX_IMAGE_BASE64_LENGTH = 8_000_000
 
 export const maxDuration = 60
 
@@ -43,18 +44,17 @@ export async function POST(req: NextRequest) {
   try {
     const { imageBase64, imageMimeType, subject, task, studentSolution } = await req.json()
 
-    const model = getGemmaModel()
-    if (!model) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
-    }
+    let details: string
+    let image: { data: string; mediaType: string } | null = null
 
-    const parts: Part[] = [{ text: PROMPT }]
-
-    if (imageBase64 && imageMimeType) {
-      parts.push({ inlineData: { mimeType: imageMimeType, data: imageBase64 } })
-      parts.push({ text: `Subject: ${subject ?? 'General'}\nPlease analyze the homework shown in this image.` })
+    if (typeof imageBase64 === 'string' && typeof imageMimeType === 'string' && imageMimeType.startsWith('image/')) {
+      if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+        return NextResponse.json({ error: 'Image is too large. Please use a smaller photo.' }, { status: 413 })
+      }
+      image = { data: imageBase64, mediaType: imageMimeType }
+      details = `Subject: ${subject || 'General'}\nPlease analyze the homework shown in this image.`
     } else if (task && studentSolution) {
-      parts.push({ text: `Subject: ${subject ?? 'Math'}\nTask: ${task}\nStudent solution: ${studentSolution}` })
+      details = `Subject: ${subject || 'Math'}\nTask: ${task}\nStudent solution: ${studentSolution}`
     } else {
       return NextResponse.json(
         { error: 'Provide either imageBase64 + imageMimeType or task + studentSolution' },
@@ -62,17 +62,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const result = await model.generateContent(parts)
-    const raw = result.response.text()
+    const raw = await generateWithGemma([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: PROMPT },
+          ...(image ? [{ type: 'file' as const, mediaType: image.mediaType, data: image.data }] : []),
+          { type: 'text', text: details },
+        ],
+      },
+    ])
 
     try {
       return NextResponse.json(parseModelJson(raw))
     } catch {
       console.error('Failed to parse Gemma response:', raw)
-      return NextResponse.json({ error: 'Model returned invalid JSON', raw }, { status: 500 })
+      return NextResponse.json({ error: 'The tutor returned an unexpected response. Please try again.' }, { status: 502 })
     }
   } catch (err) {
     console.error('analyze route error:', err)
-    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to analyze this submission right now. Please try again.' }, { status: 500 })
   }
 }

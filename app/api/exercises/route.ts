@@ -1,28 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getGemmaModel, parseModelJson } from '@/lib/gemma'
+import { generateWithGemma, parseModelJson } from '@/lib/gemma'
 
 export const maxDuration = 60
 
-const fallbackExercises = [
-  { number: 1, question: 'Solve: 3x + 2 = 11', answer: 'x = 3', skill: 'Linear equations' },
-  { number: 2, question: 'Solve: 5x - 3 = 12', answer: 'x = 3', skill: 'Linear equations' },
-  { number: 3, question: 'Solve: 2x + 7 = 15', answer: 'x = 4', skill: 'Linear equations' },
-  { number: 4, question: 'Solve: 4x - 1 = 19', answer: 'x = 5', skill: 'Linear equations' },
-  { number: 5, question: 'Solve: x/2 + 3 = 7', answer: 'x = 8', skill: 'Linear equations' },
-]
+const DIFFICULTIES = ['easy', 'medium', 'hard']
+
+type Exercise = { number: number; question: string; answer: string; skill: string }
 
 export async function POST(req: NextRequest) {
   try {
-    const { subject, topic, weakness, difficulty = 'medium', count = 5 } = await req.json()
-
-    const model = getGemmaModel()
-    if (!model) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
-    }
+    const body = await req.json()
+    const difficulty = DIFFICULTIES.includes(body.difficulty) ? body.difficulty : 'medium'
+    const count = Math.min(10, Math.max(1, Number.parseInt(body.count, 10) || 5))
+    const mistakes: string[] = Array.isArray(body.mistakes) ? body.mistakes.filter((m: unknown) => typeof m === 'string') : []
 
     const prompt = `Generate ${count} ${difficulty} practice exercises for a student
-who is struggling with: ${weakness}
-Subject: ${subject}, Topic: ${topic}
+who is struggling with: ${body.weakness || 'general practice'}
+Subject: ${body.subject || 'General'}, Topic: ${body.topic || 'General'}
+${mistakes.length > 0 ? `Mistakes the student made: ${mistakes.join('; ')}` : ''}
 
 Return ONLY valid JSON, no markdown:
 {
@@ -31,10 +26,22 @@ Return ONLY valid JSON, no markdown:
   ]
 }`
 
-    const result = await model.generateContent(prompt)
-    return NextResponse.json(parseModelJson(result.response.text()))
+    const data = parseModelJson<{ exercises?: Partial<Exercise>[] }>(await generateWithGemma(prompt))
+    const exercises = (Array.isArray(data.exercises) ? data.exercises : [])
+      .filter((item) => item?.question && item?.answer)
+      .map((item, index) => ({
+        number: index + 1,
+        question: String(item.question),
+        answer: String(item.answer),
+        skill: String(item.skill ?? body.topic ?? 'Practice'),
+      }))
+
+    if (exercises.length === 0) {
+      return NextResponse.json({ error: 'No exercises were generated. Please try again.' }, { status: 502 })
+    }
+    return NextResponse.json({ exercises })
   } catch (err) {
     console.error('exercises route error:', err)
-    return NextResponse.json({ exercises: fallbackExercises })
+    return NextResponse.json({ error: 'Unable to create exercises right now. Please try again.' }, { status: 500 })
   }
 }
