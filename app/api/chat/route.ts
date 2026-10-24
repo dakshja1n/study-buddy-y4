@@ -1,24 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getGemmaModel } from '@/lib/gemma'
+
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, subject } = await req.json()
-    if (!message?.trim()) {
-      return NextResponse.json({ error: 'message is required' }, { status: 400 })
+    const { message, subject, context } = await req.json()
+
+    const model = getGemmaModel()
+    if (!model) {
+      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
     }
 
-    // Placeholder until Gemma 4 is connected
-    const replies: Record<string, string> = {
-      Math: `That's a great math question! For "${message}", think about breaking the problem into smaller steps. What part is confusing you most?`,
-      Science: `Good question about science! For "${message}", try to think about what you already know. What concepts have you learned recently?`,
-      Writing: `Great writing question! For "${message}", focus on your main idea first. Does your argument flow clearly from start to finish?`,
-    }
+    const prompt = `You are a friendly, encouraging homework tutor helping a student with ${subject}.
+Context: ${context}
+Student question: ${message}
 
-    const reply = replies[subject] ?? `Good question! Let me think about "${message}". What have you already tried so far?`
+Reply in 2-3 sentences. Be clear, warm, and helpful.
+Do not use markdown or bullet points — speak naturally as a tutor would.`
 
-    return NextResponse.json({ reply })
+    const result = await model.generateContent(prompt)
+    return NextResponse.json({ reply: result.response.text().trim() })
   } catch (err) {
     console.error('chat route error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({
+      reply: "I'm having trouble connecting right now. Please try again in a moment.",
+    })
   }
 }
