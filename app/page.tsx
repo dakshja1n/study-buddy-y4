@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { uploadHomeworkImage } from '@/lib/uploadImage'
+import { readJson } from '@/lib/read-json'
 
 async function speak(text: string): Promise<void> {
   try {
@@ -116,8 +117,9 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userText, subject, context }),
       })
-      if (!chatRes.ok) throw new Error('The tutor is unavailable right now.')
-      const { reply } = await chatRes.json()
+      const chatData = await readJson<{ reply?: string }>(chatRes)
+      if (!chatRes.ok || !chatData?.reply) throw new Error(chatData?.error ?? 'The tutor is unavailable right now.')
+      const { reply } = chatData
       setMessages((prev) => [...prev, { role: 'tutor', text: reply }])
 
       setStatus('speaking')
@@ -296,8 +298,8 @@ export default function Page() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ docId, imageBase64, imageMimeType, subject }),
       })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to analyze this submission')
+      const data = await readJson<Analysis>(response)
+      if (!response.ok || !data || data.error) throw new Error(data?.error ?? 'Unable to analyze this submission')
       setAnalysis(data)
       setAppState('results')
     } catch (submissionError) {
@@ -870,7 +872,7 @@ function ExerciseSheet({
           count: 5,
         }),
       })
-      const data = await response.json().catch(() => null)
+      const data = await readJson<{ exercises?: Exercise[] }>(response)
       if (!response.ok || !Array.isArray(data?.exercises) || data.exercises.length === 0) {
         throw new Error(data?.error ?? 'Unable to create exercises. Please try again.')
       }
