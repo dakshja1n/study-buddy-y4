@@ -1,0 +1,12 @@
+{
+  "name": "StudyBuddy AI",
+  "short_name": "StudyBuddy",
+  "description": "Your friendly AI homework tutor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F9FAFB",
+  "theme_color": "#4F46E5",
+  "icons": [
+    { "src": "/icon-light-32x32.png", "sizes": "32x32", "type": "image/png" }
+  ]
+}
