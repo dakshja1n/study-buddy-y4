@@ -1,26 +1,55 @@
-import { generateText, type ModelMessage } from 'ai'
+import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
 
-const DEFAULT_GEMMA_MODEL = 'gemma-4-31b-it'
-const SUPPORTED_GEMMA_MODELS = ['gemma-4-31b-it', 'gemma-4-26b-a4b-it']
+const DEFAULT_GEMMA_MODEL = 'gemma-3-27b-it'
 
-function resolveGemmaModelId() {
-  const configured = process.env.GEMINI_MODEL?.trim().replace(/^google\//, '')
-  const name = configured && SUPPORTED_GEMMA_MODELS.includes(configured) ? configured : DEFAULT_GEMMA_MODEL
-  return `google/${name}`
+type GemmaContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mediaType: string; data: string }
+
+type GemmaMessage = { role: 'user' | 'assistant'; content: string | GemmaContentPart[] }
+
+function getApiKey() {
+  const key = process.env.GEMINI_API_KEY?.trim()
+  if (!key) throw new Error('GEMINI_API_KEY is not set')
+  return key
 }
 
-export async function generateWithGemma(input: string | ModelMessage[]) {
-  const { text } = await generateText({
-    model: resolveGemmaModelId(),
-    ...(typeof input === 'string' ? { prompt: input } : { messages: input }),
+function resolveGemmaModelId() {
+  return process.env.GEMINI_MODEL?.trim().replace(/^(google|models)\//, '') || DEFAULT_GEMMA_MODEL
+}
+
+function toParts(content: GemmaMessage['content']): Part[] {
+  if (typeof content === 'string') return [{ text: content }]
+  return content.map((part) =>
+    part.type === 'text'
+      ? { text: part.text }
+      : { inlineData: { mimeType: part.mediaType, data: part.data.replace(/^data:[^;]+;base64,/, '') } },
+  )
+}
+
+export async function generateWithGemma(input: string | GemmaMessage[]) {
+  const model = new GoogleGenerativeAI(getApiKey()).getGenerativeModel({ model: resolveGemmaModelId() })
+  const messages: GemmaMessage[] = typeof input === 'string' ? [{ role: 'user', content: input }] : input
+
+  const result = await model.generateContent({
+    contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: toParts(m.content) })),
   })
-  return text
+  return result.response.text()
 }
 
 export function gatewayErrorMessage(err: unknown, fallback: string) {
   const message = err instanceof Error ? err.message : ''
-  if (/credit card/i.test(message)) {
-    return 'AI is not enabled yet: add a credit card to your Vercel team to unlock AI Gateway free credits (Vercel dashboard → AI Gateway).'
+  if (/GEMINI_API_KEY is not set/.test(message)) {
+    return 'AI is not configured: add a GEMINI_API_KEY environment variable (get one at aistudio.google.com).'
+  }
+  if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(message)) {
+    return 'The GEMINI_API_KEY is invalid. Please check the key in your project settings.'
+  }
+  if (/429|quota|RESOURCE_EXHAUSTED/i.test(message)) {
+    return 'Gemma rate limit reached. Please wait a moment and try again.'
+  }
+  if (/not found|404/i.test(message)) {
+    return `The Gemma model "${resolveGemmaModelId()}" is not available. Set GEMINI_MODEL to a valid model (e.g. gemma-3-27b-it).`
   }
   return fallback
 }
