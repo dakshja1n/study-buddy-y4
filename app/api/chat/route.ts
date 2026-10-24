@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateWithGemma } from '@/lib/gemma'
+import { gatewayErrorMessage, generateWithGemma } from '@/lib/gemma'
 
 export const maxDuration = 60
 
@@ -21,6 +21,9 @@ Do not use markdown or bullet points — speak naturally as a tutor would.`
     return NextResponse.json({ reply: reply.trim() })
   } catch (err) {
     console.error('chat route error:', err)
-    return NextResponse.json({ error: 'The tutor is unavailable right now.' }, { status: 500 })
+    return NextResponse.json(
+      { error: gatewayErrorMessage(err, 'The tutor is unavailable right now.') },
+      { status: 500 },
+    )
   }
 }

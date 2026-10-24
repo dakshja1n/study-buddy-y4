@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateWithGemma, parseModelJson } from '@/lib/gemma'
+import { gatewayErrorMessage, generateWithGemma, parseModelJson } from '@/lib/gemma'
 
 export const maxDuration = 60
 
@@ -42,6 +42,9 @@ Return ONLY valid JSON, no markdown:
     return NextResponse.json({ exercises })
   } catch (err) {
     console.error('exercises route error:', err)
-    return NextResponse.json({ error: 'Unable to create exercises right now. Please try again.' }, { status: 500 })
+    return NextResponse.json(
+      { error: gatewayErrorMessage(err, 'Unable to create exercises right now. Please try again.') },
+      { status: 500 },
+    )
   }
 }
