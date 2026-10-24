@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
 
-const DEFAULT_GEMMA_MODEL = 'gemma-3-27b-it'
+const DEFAULT_GEMMA_MODEL = 'gemma-4-31b-it'
 
 type GemmaContentPart =
   | { type: 'text'; text: string }
@@ -49,7 +49,7 @@ export function gatewayErrorMessage(err: unknown, fallback: string) {
     return 'Gemma rate limit reached. Please wait a moment and try again.'
   }
   if (/not found|404/i.test(message)) {
-    return `The Gemma model "${resolveGemmaModelId()}" is not available. Set GEMINI_MODEL to a valid model (e.g. gemma-3-27b-it).`
+    return `The Gemma model "${resolveGemmaModelId()}" is not available. Set GEMINI_MODEL to a valid model (e.g. gemma-4-31b-it).`
   }
   return fallback
 }
