@@ -240,7 +240,7 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
 
 type AppState = 'idle' | 'analyzing' | 'results' | 'practice' | 'exercises'
 type Difficulty = 'easy' | 'medium' | 'hard'
-type Exercise = { number: number; question: string; answer: string; skill: string }
+type Exercise = { number: number; question: string; answer: string; skill: string; solution?: string }
 
 const subjects = ['Math', 'Science', 'Writing', 'Other']
 type Mistake = { step?: string; issue: string; correction: string; explanation: string }
@@ -906,6 +906,7 @@ function PracticeState({
         {revealed && (
           <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
             <span className="font-semibold">Answer:</span> {problem.answer}
+            {problem.solution && <span className="mt-2 block whitespace-pre-line text-slate-600">{problem.solution}</span>}
           </p>
         )}
         <div className="mt-4 flex gap-3">
@@ -1072,6 +1073,9 @@ function ExerciseSheet({
                     className={`answer-reveal mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 ${openAnswers[exercise.number] ? '' : 'hidden print:block'}`}
                   >
                     Answer: {exercise.answer}
+                    {exercise.solution && (
+                      <span className="mt-2 block whitespace-pre-line font-normal text-emerald-800">{exercise.solution}</span>
+                    )}
                   </div>
                 </div>
               </div>
