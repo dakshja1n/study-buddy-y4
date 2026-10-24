@@ -1,7 +1,22 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, Camera, Check, ChevronLeft, ChevronRight, FileImage, Lightbulb, Loader2, Mic, RotateCcw, Sparkles, Speaker, Upload, X } from 'lucide-react'
+import {
+  BookOpen,
+  Camera,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FileImage,
+  Lightbulb,
+  Loader2,
+  Mic,
+  RotateCcw,
+  Sparkles,
+  Speaker,
+  Upload,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { uploadHomeworkImage } from '@/lib/uploadImage'
 
@@ -17,7 +32,10 @@ async function speak(text: string): Promise<void> {
     const url = URL.createObjectURL(blob)
     const audio = new Audio(url)
     await new Promise<void>((resolve) => {
-      const done = () => { URL.revokeObjectURL(url); resolve() }
+      const done = () => {
+        URL.revokeObjectURL(url)
+        resolve()
+      }
       audio.onended = done
       audio.onerror = done
       audio.play().catch(done)
@@ -32,8 +50,8 @@ type VoiceStatus = 'idle' | 'listening' | 'thinking' | 'speaking'
 
 const voiceStatusLabel: Record<VoiceStatus, string> = {
   idle: 'Tap mic → speak → tap again to stop',
-  listening: '🔴 Recording... tap mic to stop',
-  thinking: 'Transcribing...',
+  listening: 'Recording... tap mic to stop',
+  thinking: 'Thinking...',
   speaking: 'Speaking...',
 }
 
@@ -50,13 +68,22 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  useEffect(() => {
+    return () => {
+      const recorder = mediaRecorderRef.current
+      if (!recorder) return
+      recorder.onstop = null
+      if (recorder.state !== 'inactive') recorder.stop()
+      recorder.stream.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
+
   async function handleRecordingStop(stream: MediaStream, mediaRecorder: MediaRecorder) {
     stream.getTracks().forEach((track) => track.stop())
     setStatus('thinking')
     try {
       const actualMimeType = mediaRecorder.mimeType || 'audio/webm'
       const blob = new Blob(chunksRef.current, { type: actualMimeType })
-      console.log('Sending audio blob:', actualMimeType, blob.size, 'bytes')
 
       if (blob.size < 1000) {
         setMessages((prev) => [
@@ -73,7 +100,6 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
       const listenRes = await fetch('/api/listen', { method: 'POST', body: form })
       if (!listenRes.ok) throw new Error("I couldn't hear that. Please try again.")
       const { text: userText } = await listenRes.json()
-      console.log('Transcribed text:', userText)
 
       if (!userText?.trim()) {
         setMessages((prev) => [
@@ -156,14 +182,20 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
           <Mic className="size-4" />
           <span className="text-sm font-semibold">Voice Tutor</span>
         </div>
-        <button onClick={() => setIsOpen(false)} className="text-indigo-200 hover:text-white" aria-label="Close voice tutor">
+        <button
+          onClick={() => setIsOpen(false)}
+          className="text-indigo-200 hover:text-white"
+          aria-label="Close voice tutor"
+        >
           <X className="size-4" />
         </button>
       </div>
 
       <div className="flex max-h-64 min-h-[100px] flex-col gap-2 overflow-y-auto p-4" aria-live="polite">
         {messages.length === 0 && (
-          <p className="mt-4 text-center text-sm text-slate-400">Tap the mic and ask me anything about your homework.</p>
+          <p className="mt-4 text-center text-sm text-slate-400">
+            Tap the mic and ask me anything about your homework.
+          </p>
         )}
         {messages.map((msg, i) => (
           <div
@@ -179,13 +211,21 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
       </div>
 
       <div className="flex flex-col items-center gap-2 border-t border-slate-100 p-4">
-        {error ? <p className="text-center text-xs text-red-600">{error}</p> : <p className="text-xs text-slate-400">{voiceStatusLabel[status]}</p>}
+        {error ? (
+          <p className="text-center text-xs text-red-600">{error}</p>
+        ) : (
+          <p className="text-xs text-slate-400">{voiceStatusLabel[status]}</p>
+        )}
         <button
           onClick={handleMicClick}
           disabled={isBusy}
           aria-label={status === 'listening' ? 'Stop recording' : 'Start recording'}
           className={`flex size-12 items-center justify-center rounded-full text-white transition ${
-            status === 'listening' ? 'animate-pulse bg-red-500' : isBusy ? 'cursor-not-allowed bg-slate-300' : 'bg-indigo-600 hover:bg-indigo-700'
+            status === 'listening'
+              ? 'animate-pulse bg-red-500'
+              : isBusy
+                ? 'cursor-not-allowed bg-slate-300'
+                : 'bg-indigo-600 hover:bg-indigo-700'
           }`}
         >
           {isBusy ? <Loader2 className="size-5 animate-spin" /> : <Mic className="size-5" />}
@@ -200,7 +240,6 @@ type Difficulty = 'easy' | 'medium' | 'hard'
 type Exercise = { number: number; question: string; answer: string; skill: string }
 
 const subjects = ['Math', 'Science', 'Writing', 'Other']
-const questions = ['Can you explain this step?', 'Show me a similar example', 'How can I avoid this next time?']
 type Mistake = { step?: string; issue: string; correction: string; explanation: string }
 type Analysis = {
   subject?: string
@@ -216,6 +255,7 @@ type Analysis = {
 
 export default function Page() {
   const inputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState('')
   const [subject, setSubject] = useState('Math')
@@ -224,13 +264,21 @@ export default function Page() {
   const [error, setError] = useState('')
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
 
+  useEffect(() => {
+    if (!preview) return
+    return () => URL.revokeObjectURL(preview)
+  }, [preview])
+
   const chooseFile = (nextFile?: File) => {
     if (!nextFile) {
       setFile(null)
       setPreview('')
       return
     }
-    if (!nextFile.type.startsWith('image/')) return
+    if (!nextFile.type.startsWith('image/')) {
+      setError('Please choose an image file (JPG or PNG).')
+      return
+    }
     setFile(nextFile)
     setPreview(URL.createObjectURL(nextFile))
     setAppState('idle')
@@ -243,7 +291,11 @@ export default function Page() {
     setError('')
     try {
       const { docId, imageBase64, imageMimeType } = await uploadHomeworkImage(file, subject)
-      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ docId, imageBase64, imageMimeType, subject }) })
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ docId, imageBase64, imageMimeType, subject }),
+      })
       const data = await response.json()
       if (!response.ok) throw new Error(data?.error ?? 'Unable to analyze this submission')
       setAnalysis(data)
@@ -254,36 +306,695 @@ export default function Page() {
     }
   }
 
-  const reset = () => { setFile(null); setPreview(''); setAppState('idle'); setError(''); setAnalysis(null) }
+  const reset = () => {
+    setFile(null)
+    setPreview('')
+    setAppState('idle')
+    setError('')
+    setAnalysis(null)
+  }
   const showResults = appState === 'results' || appState === 'practice' || appState === 'exercises'
 
   return (
     <main className="min-h-screen bg-[#f9fafb] text-slate-900 print:bg-white">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 lg:px-8">
-          <div className="flex items-center gap-3"><div className="relative flex size-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm" aria-label="StudyBuddy logo"><BookOpen className="size-5" /><Sparkles className="absolute -right-1 -top-1 size-3.5 text-amber-300" /></div><div><p className="text-lg font-bold tracking-tight">StudyBuddy <span className="text-indigo-600">AI</span></p><p className="text-xs text-slate-500">Your homework, understood.</p></div></div>
-          {showResults && <Button variant="ghost" onClick={reset}><RotateCcw className="mr-2 size-4" />New problem</Button>}
+          <div className="flex items-center gap-3">
+            <div
+              className="relative flex size-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"
+              aria-label="StudyBuddy logo"
+            >
+              <BookOpen className="size-5" />
+              <Sparkles className="absolute -right-1 -top-1 size-3.5 text-amber-300" />
+            </div>
+            <div>
+              <p className="text-lg font-bold tracking-tight">
+                StudyBuddy <span className="text-indigo-600">AI</span>
+              </p>
+              <p className="text-xs text-slate-500">Your homework, understood.</p>
+            </div>
+          </div>
+          {showResults && (
+            <Button variant="ghost" onClick={reset}>
+              <RotateCcw className="mr-2 size-4" />
+              New problem
+            </Button>
+          )}
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14">
-        {appState === 'idle' && <UploadState inputRef={inputRef} file={file} preview={preview} subject={subject} setSubject={setSubject} isDragging={isDragging} setIsDragging={setIsDragging} chooseFile={chooseFile} submit={submit} error={error} />}
+        {appState === 'idle' && (
+          <UploadState
+            inputRef={inputRef}
+            cameraInputRef={cameraInputRef}
+            file={file}
+            preview={preview}
+            subject={subject}
+            setSubject={setSubject}
+            isDragging={isDragging}
+            setIsDragging={setIsDragging}
+            chooseFile={chooseFile}
+            submit={submit}
+            error={error}
+          />
+        )}
         {appState === 'analyzing' && <LoadingState preview={preview} />}
-        {appState === 'results' && <ResultsState preview={preview} analysis={analysis} onPractice={() => setAppState('practice')} onExercises={() => setAppState('exercises')} />}
-        {appState === 'practice' && <PracticeState onBack={() => setAppState('results')} onReset={reset} />}
-        {appState === 'exercises' && <ExerciseSheet analysis={analysis} fallbackSubject={subject} onBack={() => setAppState('results')} />}
+        {appState === 'results' && (
+          <ResultsState
+            preview={preview}
+            analysis={analysis}
+            onPractice={() => setAppState('practice')}
+            onExercises={() => setAppState('exercises')}
+          />
+        )}
+        {appState === 'practice' && (
+          <PracticeState
+            analysis={analysis}
+            fallbackSubject={subject}
+            onBack={() => setAppState('results')}
+            onExercises={() => setAppState('exercises')}
+          />
+        )}
+        {appState === 'exercises' && (
+          <ExerciseSheet analysis={analysis} fallbackSubject={subject} onBack={() => setAppState('results')} />
+        )}
       </div>
     </main>
   )
 }
 
-function UploadState({ inputRef, file, preview, subject, setSubject, isDragging, setIsDragging, chooseFile, submit, error }: any) {
-  return <section className="mx-auto max-w-3xl text-center"><div className="mb-10"><div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600"><Sparkles className="size-7" /></div><h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Let&apos;s figure this out together.</h1><p className="mx-auto mt-3 max-w-xl text-base leading-7 text-slate-500">Upload a photo of your homework and I&apos;ll help you find mistakes, understand the why, and build your confidence.</p></div><div className={`rounded-3xl border-2 border-dashed bg-white p-5 shadow-sm transition-colors sm:p-8 ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300'}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); chooseFile(event.dataTransfer.files[0]) }}>{preview ? <div className="relative overflow-hidden rounded-2xl bg-slate-100"><img src={preview} alt="Selected homework" className="mx-auto max-h-80 w-full object-contain" /><button onClick={() => chooseFile()} aria-label="Remove selected image" className="absolute right-3 top-3 rounded-full bg-white p-2 text-slate-600 shadow hover:text-red-600"><X className="size-4" /></button></div> : <div className="flex min-h-56 flex-col items-center justify-center"><div className="mb-4 flex size-14 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Upload className="size-6" /></div><p className="font-semibold">Drop your homework here</p><p className="mt-1 text-sm text-slate-500">or choose an image from your device</p><div className="mt-6 flex flex-wrap justify-center gap-3"><Button variant="outline" onClick={() => inputRef.current?.click()}><FileImage className="mr-2 size-4" />Choose photo</Button><Button variant="outline" onClick={() => inputRef.current?.click()}><Camera className="mr-2 size-4" />Take a photo</Button></div><input ref={inputRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={(event) => chooseFile(event.target.files?.[0])} /></div>}</div><div className="mt-6 text-left"><p className="mb-3 text-sm font-semibold text-slate-700">What are you working on?</p><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{subjects.map((item: string) => <button key={item} onClick={() => setSubject(item)} className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${subject === item ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300'}`}>{item}{subject === item && <Check className="ml-2 inline size-4" />}</button>)}</div></div><Button size="lg" disabled={!file} onClick={submit} className="mt-8 h-12 w-full rounded-xl bg-indigo-600 text-base text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 sm:w-72">Check My Work<ChevronRight className="ml-2 size-5" /></Button>{error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}</section>
+function UploadState({
+  inputRef,
+  cameraInputRef,
+  file,
+  preview,
+  subject,
+  setSubject,
+  isDragging,
+  setIsDragging,
+  chooseFile,
+  submit,
+  error,
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>
+  cameraInputRef: React.RefObject<HTMLInputElement | null>
+  file: File | null
+  preview: string
+  subject: string
+  setSubject: (subject: string) => void
+  isDragging: boolean
+  setIsDragging: (dragging: boolean) => void
+  chooseFile: (file?: File) => void
+  submit: () => void
+  error: string
+}) {
+  return (
+    <section className="mx-auto max-w-3xl text-center">
+      <div className="mb-10">
+        <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600">
+          <Sparkles className="size-7" />
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Let&apos;s figure this out together.</h1>
+        <p className="mx-auto mt-3 max-w-xl text-base leading-7 text-slate-500">
+          Upload a photo of your homework and I&apos;ll help you find mistakes, understand the why, and build your
+          confidence.
+        </p>
+      </div>
+      <div
+        className={`rounded-3xl border-2 border-dashed bg-white p-5 shadow-sm transition-colors sm:p-8 ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300'}`}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setIsDragging(true)
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setIsDragging(false)
+          chooseFile(event.dataTransfer.files[0])
+        }}
+      >
+        {preview ? (
+          <div className="relative overflow-hidden rounded-2xl bg-slate-100">
+            <img src={preview} alt="Selected homework" className="mx-auto max-h-80 w-full object-contain" />
+            <button
+              onClick={() => chooseFile()}
+              aria-label="Remove selected image"
+              className="absolute right-3 top-3 rounded-full bg-white p-2 text-slate-600 shadow hover:text-red-600"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex min-h-56 flex-col items-center justify-center">
+            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+              <Upload className="size-6" />
+            </div>
+            <p className="font-semibold">Drop your homework here</p>
+            <p className="mt-1 text-sm text-slate-500">or choose an image from your device</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <Button variant="outline" onClick={() => inputRef.current?.click()}>
+                <FileImage className="mr-2 size-4" />
+                Choose photo
+              </Button>
+              <Button variant="outline" onClick={() => cameraInputRef.current?.click()}>
+                <Camera className="mr-2 size-4" />
+                Take a photo
+              </Button>
+            </div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => chooseFile(event.target.files?.[0])}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => chooseFile(event.target.files?.[0])}
+            />
+          </div>
+        )}
+      </div>
+      <div className="mt-6 text-left">
+        <p className="mb-3 text-sm font-semibold text-slate-700">What are you working on?</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {subjects.map((item: string) => (
+            <button
+              key={item}
+              onClick={() => setSubject(item)}
+              className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${subject === item ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300'}`}
+            >
+              {item}
+              {subject === item && <Check className="ml-2 inline size-4" />}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Button
+        size="lg"
+        disabled={!file}
+        onClick={submit}
+        className="mt-8 h-12 w-full rounded-xl bg-indigo-600 text-base text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 sm:w-72"
+      >
+        Check My Work
+        <ChevronRight className="ml-2 size-5" />
+      </Button>
+      {error && (
+        <p role="alert" className="mt-4 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+    </section>
+  )
 }
 
-function LoadingState({ preview }: { preview: string }) { return <section className="mx-auto max-w-2xl text-center"><h1 className="text-2xl font-bold">One moment, I&apos;m looking closely.</h1><p className="mt-2 text-slate-500">Gemma 4 is reviewing your work...</p><div className="relative mt-8 overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"><img src={preview} alt="Homework being reviewed" className="max-h-[28rem] w-full rounded-2xl object-contain" /><div className="absolute inset-3 animate-pulse rounded-2xl bg-indigo-600/20" /></div><div className="mx-auto mt-7 h-2 max-w-md overflow-hidden rounded-full bg-indigo-100"><div className="h-full w-2/3 animate-[progress_1.8s_ease-in-out_infinite] rounded-full bg-indigo-600" /></div></section> }
+function LoadingState({ preview }: { preview: string }) {
+  return (
+    <section className="mx-auto max-w-2xl text-center">
+      <h1 className="text-2xl font-bold">One moment, I&apos;m looking closely.</h1>
+      <p className="mt-2 text-slate-500">Gemma 4 is reviewing your work...</p>
+      <div className="relative mt-8 overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+        <img src={preview} alt="Homework being reviewed" className="max-h-[28rem] w-full rounded-2xl object-contain" />
+        <div className="absolute inset-3 animate-pulse rounded-2xl bg-indigo-600/20" />
+      </div>
+      <div className="mx-auto mt-7 h-2 max-w-md overflow-hidden rounded-full bg-indigo-100">
+        <div className="h-full w-2/3 animate-[progress_1.8s_ease-in-out_infinite] rounded-full bg-indigo-600" />
+      </div>
+    </section>
+  )
+}
 
-function ResultsState({ preview, analysis, onPractice, onExercises }: { preview: string; analysis: Analysis | null; onPractice: () => void; onExercises: () => void }) { const [speakingItem, setSpeakingItem] = useState<string | null>(null); const mistakes = analysis?.mistakes ?? []; const steps = analysis?.correctSolution ?? []; const gaps = analysis?.knowledgeGaps ?? []; const summary = analysis?.encouragement || (analysis?.isCorrect ? 'Great work! Your solution looks correct.' : 'Here is some feedback on your work.'); const voiceContext = [analysis?.topic && `Topic: ${analysis.topic}`, mistakes.length > 0 && `Mistakes: ${mistakes.map((item) => item.issue).join('; ')}`, gaps.length > 0 && `Knowledge gaps: ${gaps.join(', ')}`].filter(Boolean).join('. ') || 'The student just had their homework reviewed'; return <section><div className="mb-8 flex items-end justify-between"><div><p className="text-sm font-semibold text-indigo-600">Review complete</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Here&apos;s what I noticed.</h1></div><span className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 sm:inline-flex">Ready to learn</span></div><div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"><div className="lg:sticky lg:top-6 lg:self-start"><div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"><img src={preview} alt="Uploaded homework" className="max-h-[600px] w-full rounded-2xl object-contain" /></div><p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-400"><Lightbulb className="size-3.5" />Learning happens one step at a time.</p></div><div className="flex flex-col gap-5"><div className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="text-sm font-semibold text-amber-900">Quick summary</p><p className="mt-1 leading-6 text-amber-900/80">{summary}</p>{analysis?.topic && <p className="mt-2 text-xs font-medium text-amber-900/60">{analysis.subject ? `${analysis.subject} · ` : ''}{analysis.topic}</p>}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold">Let&apos;s make it clearer</h2><span className="text-xs font-medium text-slate-400">{mistakes.length} {mistakes.length === 1 ? 'thing' : 'things'} to review</span></div><div className="flex flex-col gap-4">{mistakes.length === 0 && <p className="rounded-xl bg-emerald-50 p-4 text-sm font-medium text-emerald-700">{analysis?.unclear ? 'I could not read this clearly. Try a sharper, well-lit photo.' : 'No mistakes found. Nice job!'}</p>}{mistakes.map((item, index) => <article key={`${index}-${item.issue}`} className="rounded-xl border border-slate-200 border-l-4 border-l-red-400 bg-slate-50/70 p-4">{item.step && <p className="mb-2 font-mono text-xs text-slate-500">{item.step}</p>}<p className="text-sm"><span className="font-semibold text-red-600">Mistake</span><span className="mx-2 text-slate-300">|</span>{item.issue}</p><p className="mt-2 text-sm"><span className="font-semibold text-emerald-600">Try this</span><span className="mx-2 text-slate-300">|</span>{item.correction}</p><p className="mt-3 text-sm leading-6 text-slate-500">{item.explanation}</p><Button variant="ghost" size="sm" disabled={speakingItem !== null} onClick={async () => { setSpeakingItem(item.issue); await speak(`${item.correction}. ${item.explanation}`); setSpeakingItem(null) }} className="mt-2 px-0 text-indigo-600 hover:bg-transparent hover:text-indigo-700"><Speaker className="mr-2 size-4" />{speakingItem === item.issue ? 'Playing...' : 'Hear explanation'}</Button></article>)}</div>{gaps.length > 0 && <div className="mt-5 flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-slate-500">Focus areas:</span>{gaps.map((gap) => <span key={gap} className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">{gap}</span>)}</div>}</div>{steps.length > 0 && <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="mb-4 font-bold">Correct approach</h2><ol className="flex flex-col gap-2">{steps.map((step, index) => <li key={`${index}-${step}`} className="flex items-start gap-3 text-sm"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">{index + 1}</span><span className="pt-0.5 font-mono text-slate-700">{step}</span></li>)}</ol></div>}<div className="flex flex-col gap-3 sm:flex-row"><Button onClick={onPractice} className="h-12 flex-1 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Practice Now<ChevronRight className="ml-2 size-5" /></Button><Button onClick={onExercises} variant="outline" className="h-12 flex-1 rounded-xl border-indigo-300 text-indigo-700 hover:bg-indigo-50">Generate Exercise Sheet<ChevronRight className="ml-2 size-5" /></Button></div></div></div><VoiceChat subject={analysis?.subject ?? 'Math'} context={voiceContext} /></section> }
+function ResultsState({
+  preview,
+  analysis,
+  onPractice,
+  onExercises,
+}: {
+  preview: string
+  analysis: Analysis | null
+  onPractice: () => void
+  onExercises: () => void
+}) {
+  const [speakingItem, setSpeakingItem] = useState<string | null>(null)
+  const mistakes = analysis?.mistakes ?? []
+  const steps = analysis?.correctSolution ?? []
+  const gaps = analysis?.knowledgeGaps ?? []
+  const summary =
+    analysis?.encouragement ||
+    (analysis?.isCorrect ? 'Great work! Your solution looks correct.' : 'Here is some feedback on your work.')
+  const voiceContext =
+    [
+      analysis?.topic && `Topic: ${analysis.topic}`,
+      mistakes.length > 0 && `Mistakes: ${mistakes.map((item) => item.issue).join('; ')}`,
+      gaps.length > 0 && `Knowledge gaps: ${gaps.join(', ')}`,
+    ]
+      .filter(Boolean)
+      .join('. ') || 'The student just had their homework reviewed'
+  return (
+    <section>
+      <div className="mb-8 flex items-end justify-between">
+        <div>
+          <p className="text-sm font-semibold text-indigo-600">Review complete</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">Here&apos;s what I noticed.</h1>
+        </div>
+        <span className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 sm:inline-flex">
+          Ready to learn
+        </span>
+      </div>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+            <img src={preview} alt="Uploaded homework" className="max-h-[600px] w-full rounded-2xl object-contain" />
+          </div>
+          <p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-400">
+            <Lightbulb className="size-3.5" />
+            Learning happens one step at a time.
+          </p>
+        </div>
+        <div className="flex flex-col gap-5">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-sm font-semibold text-amber-900">Quick summary</p>
+            <p className="mt-1 leading-6 text-amber-900/80">{summary}</p>
+            {analysis?.topic && (
+              <p className="mt-2 text-xs font-medium text-amber-900/60">
+                {analysis.subject ? `${analysis.subject} · ` : ''}
+                {analysis.topic}
+              </p>
+            )}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-bold">Let&apos;s make it clearer</h2>
+              <span className="text-xs font-medium text-slate-400">
+                {mistakes.length} {mistakes.length === 1 ? 'thing' : 'things'} to review
+              </span>
+            </div>
+            <div className="flex flex-col gap-4">
+              {mistakes.length === 0 && (
+                <p className="rounded-xl bg-emerald-50 p-4 text-sm font-medium text-emerald-700">
+                  {analysis?.unclear
+                    ? 'I could not read this clearly. Try a sharper, well-lit photo.'
+                    : 'No mistakes found. Nice job!'}
+                </p>
+              )}
+              {mistakes.map((item, index) => (
+                <article
+                  key={`${index}-${item.issue}`}
+                  className="rounded-xl border border-slate-200 border-l-4 border-l-red-400 bg-slate-50/70 p-4"
+                >
+                  {item.step && <p className="mb-2 font-mono text-xs text-slate-500">{item.step}</p>}
+                  <p className="text-sm">
+                    <span className="font-semibold text-red-600">Mistake</span>
+                    <span className="mx-2 text-slate-300">|</span>
+                    {item.issue}
+                  </p>
+                  <p className="mt-2 text-sm">
+                    <span className="font-semibold text-emerald-600">Try this</span>
+                    <span className="mx-2 text-slate-300">|</span>
+                    {item.correction}
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-slate-500">{item.explanation}</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={speakingItem !== null}
+                    onClick={async () => {
+                      setSpeakingItem(item.issue)
+                      await speak(`${item.correction}. ${item.explanation}`)
+                      setSpeakingItem(null)
+                    }}
+                    className="mt-2 px-0 text-indigo-600 hover:bg-transparent hover:text-indigo-700"
+                  >
+                    <Speaker className="mr-2 size-4" />
+                    {speakingItem === item.issue ? 'Playing...' : 'Hear explanation'}
+                  </Button>
+                </article>
+              ))}
+            </div>
+            {gaps.length > 0 && (
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500">Focus areas:</span>
+                {gaps.map((gap) => (
+                  <span key={gap} className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+                    {gap}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {steps.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold">Correct approach</h2>
+              <ol className="flex flex-col gap-2">
+                {steps.map((step, index) => (
+                  <li key={`${index}-${step}`} className="flex items-start gap-3 text-sm">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
+                      {index + 1}
+                    </span>
+                    <span className="pt-0.5 font-mono text-slate-700">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              onClick={onPractice}
+              className="h-12 flex-1 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              Practice Now
+              <ChevronRight className="ml-2 size-5" />
+            </Button>
+            <Button
+              onClick={onExercises}
+              variant="outline"
+              className="h-12 flex-1 rounded-xl border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+            >
+              Generate Exercise Sheet
+              <ChevronRight className="ml-2 size-5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+      <VoiceChat subject={analysis?.subject ?? 'Math'} context={voiceContext} />
+    </section>
+  )
+}
 
-function PracticeState({ onBack }: { onBack: () => void; onReset: () => void }) { const [answer, setAnswer] = useState(''); const [checked, setChecked] = useState(false); return <section className="mx-auto max-w-2xl"><button onClick={onBack} className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"><ChevronLeft className="size-4" />Back to Results</button><p className="text-sm font-semibold text-indigo-600">Practice time</p><h1 className="mt-1 text-3xl font-bold">Try a similar problem.</h1><div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"><p className="text-sm font-medium text-slate-500">Solve for x</p><p className="mt-4 font-mono text-3xl font-semibold">3x + 4 = 19</p><label className="mt-8 block text-sm font-semibold" htmlFor="practice-answer">Your answer</label><input id="practice-answer" value={answer} onChange={(event) => setAnswer(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" placeholder="Type your answer" /><Button onClick={() => { setChecked(true); speak(answer.trim() === '5' ? 'Correct! Great work!' : 'Not quite. Try isolating x by subtracting 4 first.') }} className="mt-4 w-full rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Check answer</Button>{checked && <p className={`mt-4 rounded-xl p-4 text-sm font-medium ${answer.trim() === '5' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{answer.trim() === '5' ? 'Correct. Great work!' : 'Not quite. Try isolating x by subtracting 4 first.'}</p>}</div><VoiceChat subject="Math" context="The student is practicing algebra" /></section> }
+function normalizeAnswer(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/^[a-z]=/, '')
+    .replace(/\.$/, '')
+}
 
-function ExerciseSheet({ analysis, fallbackSubject, onBack }: { analysis: Analysis | null; fallbackSubject: string; onBack: () => void }) { const weakness = analysis?.knowledgeGaps?.[0] ?? analysis?.topic ?? 'General practice'; const [difficulty, setDifficulty] = useState<Difficulty>('medium'); const [state, setState] = useState<'idle' | 'loading' | 'ready'>('idle'); const [exercises, setExercises] = useState<Exercise[]>([]); const [openAnswers, setOpenAnswers] = useState<Record<number, boolean>>({}); const generate = async () => { setState('loading'); try { const response = await fetch('/api/exercises', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: analysis?.subject ?? fallbackSubject, topic: analysis?.topic ?? 'General', weakness, mistakes: analysis?.mistakes?.map((item) => item.issue) ?? [], difficulty, count: 5 }) }); if (!response.ok) throw new Error('Unable to create exercises'); const data = await response.json(); setExercises(data.exercises); setState('ready') } catch { setState('idle') } }; return <section className="mx-auto max-w-4xl"><button onClick={onBack} className="mb-6 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"><ChevronLeft className="size-4" />Back to Results</button><div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold text-indigo-600">Personalized practice</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Exercise Sheet</h1></div><span className="w-fit rounded-full bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-800">Targeted practice for: {weakness}</span></div><div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm font-semibold text-slate-700">Choose a difficulty</p><div className="mt-3 flex gap-2">{(['easy', 'medium', 'hard'] as Difficulty[]).map((item) => <button key={item} onClick={() => setDifficulty(item)} className={`rounded-full border px-5 py-2 text-sm font-semibold capitalize transition ${difficulty === item ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>{item}</button>)}</div><Button onClick={generate} disabled={state === 'loading'} className="mt-5 h-12 w-full rounded-xl bg-indigo-600 text-base text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700">{state === 'loading' ? <><Loader2 className="mr-2 size-4 animate-spin" />Creating exercises...</> : 'Generate Exercises'}</Button></div>{state === 'loading' && <div className="flex items-center justify-center gap-3 py-16 text-slate-500"><Loader2 className="size-5 animate-spin text-indigo-600" />Gemma 4 is creating your exercises...</div>}{state === 'ready' && <div className="mt-6 flex flex-col gap-4">{exercises.map((exercise) => <article key={exercise.number} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-start gap-4"><span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700">{exercise.number}</span><div className="min-w-0 flex-1"><p className="font-mono text-lg font-semibold leading-8 text-slate-900">{exercise.question}</p><span className="mt-3 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{exercise.skill}</span><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={() => setOpenAnswers((current) => ({ ...current, [exercise.number]: !current[exercise.number] }))} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">{openAnswers[exercise.number] ? 'Hide Answer' : 'Show Answer'}</button><Button variant="outline" size="sm" className="voice-button" onClick={() => speak(exercise.question)}><Mic className="mr-2 size-4" />Read Question</Button></div><div className={`answer-reveal mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 ${openAnswers[exercise.number] ? '' : 'hidden print:block'}`}>Answer: {exercise.answer}</div></div></div></article>)}<Button variant="outline" onClick={() => window.print()} className="mt-3 h-12 border-indigo-300 text-indigo-700 hover:bg-indigo-50 print:hidden">Print / Save as PDF</Button></div>}<VoiceChat subject="Math" context="The student is working through exercises" /></section> }
+function isAnswerCorrect(studentAnswer: string, expectedAnswer: string) {
+  const student = normalizeAnswer(studentAnswer)
+  if (!student) return false
+  const expected = normalizeAnswer(expectedAnswer)
+  if (student === expected) return true
+  const studentNumber = Number(student)
+  const expectedNumber = Number(expected)
+  return Number.isFinite(studentNumber) && Number.isFinite(expectedNumber) && studentNumber === expectedNumber
+}
+
+function PracticeState({
+  analysis,
+  fallbackSubject,
+  onBack,
+  onExercises,
+}: {
+  analysis: Analysis | null
+  fallbackSubject: string
+  onBack: () => void
+  onExercises: () => void
+}) {
+  const problems = analysis?.exercises ?? []
+  const [index, setIndex] = useState(0)
+  const [answer, setAnswer] = useState('')
+  const [checked, setChecked] = useState(false)
+  const [revealed, setRevealed] = useState(false)
+  const problem = problems[index]
+  const subject = analysis?.subject ?? fallbackSubject
+  const correct = problem ? isAnswerCorrect(answer, problem.answer) : false
+
+  const checkAnswer = () => {
+    if (!problem || !answer.trim()) return
+    setChecked(true)
+    speak(correct ? 'Correct! Great work!' : 'Not quite. Take another look and try again.')
+  }
+
+  const nextProblem = () => {
+    setIndex((current) => (current + 1) % problems.length)
+    setAnswer('')
+    setChecked(false)
+    setRevealed(false)
+  }
+
+  if (!problem) {
+    return (
+      <section className="mx-auto max-w-2xl">
+        <button
+          onClick={onBack}
+          className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600"
+        >
+          <ChevronLeft className="size-4" />
+          Back to Results
+        </button>
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-bold">No practice problems yet.</h1>
+          <p className="mt-2 text-slate-500">Generate a targeted exercise sheet based on your homework instead.</p>
+          <Button onClick={onExercises} className="mt-6 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">
+            Generate Exercise Sheet
+          </Button>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="mx-auto max-w-2xl">
+      <button
+        onClick={onBack}
+        className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"
+      >
+        <ChevronLeft className="size-4" />
+        Back to Results
+      </button>
+      <p className="text-sm font-semibold text-indigo-600">Practice time</p>
+      <h1 className="mt-1 text-3xl font-bold">Try a similar problem.</h1>
+      <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div className="flex items-center justify-between text-sm font-medium text-slate-500">
+          <span>{problem.skill || 'Practice problem'}</span>
+          <span>
+            {index + 1} / {problems.length}
+          </span>
+        </div>
+        <p className="mt-4 text-2xl font-semibold leading-relaxed">{problem.question}</p>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            checkAnswer()
+          }}
+        >
+          <label className="mt-8 block text-sm font-semibold" htmlFor="practice-answer">
+            Your answer
+          </label>
+          <input
+            id="practice-answer"
+            value={answer}
+            onChange={(event) => {
+              setAnswer(event.target.value)
+              setChecked(false)
+            }}
+            className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            placeholder="Type your answer"
+            autoComplete="off"
+          />
+          <Button
+            type="submit"
+            disabled={!answer.trim()}
+            className="mt-4 w-full rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            Check answer
+          </Button>
+        </form>
+        {checked && (
+          <p
+            role="status"
+            className={`mt-4 rounded-xl p-4 text-sm font-medium ${correct ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}
+          >
+            {correct ? 'Correct. Great work!' : 'Not quite. Take another look and try again.'}
+          </p>
+        )}
+        {revealed && (
+          <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
+            <span className="font-semibold">Answer:</span> {problem.answer}
+          </p>
+        )}
+        <div className="mt-4 flex gap-3">
+          <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setRevealed(true)} disabled={revealed}>
+            Show answer
+          </Button>
+          {problems.length > 1 && (
+            <Button variant="outline" className="flex-1 rounded-xl" onClick={nextProblem}>
+              Next problem
+              <ChevronRight className="ml-2 size-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <VoiceChat subject={subject} context={`The student is practicing this problem: ${problem.question}`} />
+    </section>
+  )
+}
+
+function ExerciseSheet({
+  analysis,
+  fallbackSubject,
+  onBack,
+}: {
+  analysis: Analysis | null
+  fallbackSubject: string
+  onBack: () => void
+}) {
+  const weakness = analysis?.knowledgeGaps?.[0] ?? analysis?.topic ?? 'General practice'
+  const [difficulty, setDifficulty] = useState<Difficulty>('medium')
+  const [state, setState] = useState<'idle' | 'loading' | 'ready'>('idle')
+  const [exercises, setExercises] = useState<Exercise[]>([])
+  const [openAnswers, setOpenAnswers] = useState<Record<number, boolean>>({})
+  const [error, setError] = useState('')
+  const generate = async () => {
+    setState('loading')
+    setError('')
+    setOpenAnswers({})
+    try {
+      const response = await fetch('/api/exercises', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: analysis?.subject ?? fallbackSubject,
+          topic: analysis?.topic ?? 'General',
+          weakness,
+          mistakes: analysis?.mistakes?.map((item) => item.issue) ?? [],
+          difficulty,
+          count: 5,
+        }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !Array.isArray(data?.exercises) || data.exercises.length === 0) {
+        throw new Error(data?.error ?? 'Unable to create exercises. Please try again.')
+      }
+      setExercises(data.exercises)
+      setState('ready')
+    } catch (generateError) {
+      setError(generateError instanceof Error ? generateError.message : 'Unable to create exercises.')
+      setState('idle')
+    }
+  }
+  return (
+    <section className="mx-auto max-w-4xl">
+      <button
+        onClick={onBack}
+        className="mb-6 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"
+      >
+        <ChevronLeft className="size-4" />
+        Back to Results
+      </button>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-indigo-600">Personalized practice</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">Exercise Sheet</h1>
+        </div>
+        <span className="w-fit rounded-full bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-800">
+          Targeted practice for: {weakness}
+        </span>
+      </div>
+      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-sm font-semibold text-slate-700">Choose a difficulty</p>
+        <div className="mt-3 flex gap-2">
+          {(['easy', 'medium', 'hard'] as Difficulty[]).map((item) => (
+            <button
+              key={item}
+              onClick={() => setDifficulty(item)}
+              className={`rounded-full border px-5 py-2 text-sm font-semibold capitalize transition ${difficulty === item ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        <Button
+          onClick={generate}
+          disabled={state === 'loading'}
+          className="mt-5 h-12 w-full rounded-xl bg-indigo-600 text-base text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700"
+        >
+          {state === 'loading' ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Creating exercises...
+            </>
+          ) : (
+            'Generate Exercises'
+          )}
+        </Button>
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-red-600">
+            {error}
+          </p>
+        )}
+      </div>
+      {state === 'loading' && (
+        <div className="flex items-center justify-center gap-3 py-16 text-slate-500">
+          <Loader2 className="size-5 animate-spin text-indigo-600" />
+          Gemma 4 is creating your exercises...
+        </div>
+      )}
+      {state === 'ready' && (
+        <div className="mt-6 flex flex-col gap-4">
+          {exercises.map((exercise) => (
+            <article
+              key={exercise.number}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+            >
+              <div className="flex items-start gap-4">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700">
+                  {exercise.number}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-lg font-semibold leading-8 text-slate-900">{exercise.question}</p>
+                  <span className="mt-3 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    {exercise.skill}
+                  </span>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={() =>
+                        setOpenAnswers((current) => ({ ...current, [exercise.number]: !current[exercise.number] }))
+                      }
+                      className="text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                    >
+                      {openAnswers[exercise.number] ? 'Hide Answer' : 'Show Answer'}
+                    </button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="voice-button print:hidden"
+                      onClick={() => speak(exercise.question)}
+                    >
+                      <Speaker className="mr-2 size-4" />
+                      Read Question
+                    </Button>
+                  </div>
+                  <div
+                    className={`answer-reveal mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 ${openAnswers[exercise.number] ? '' : 'hidden print:block'}`}
+                  >
+                    Answer: {exercise.answer}
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+          <Button
+            variant="outline"
+            onClick={() => window.print()}
+            className="mt-3 h-12 border-indigo-300 text-indigo-700 hover:bg-indigo-50 print:hidden"
+          >
+            Print / Save as PDF
+          </Button>
+        </div>
+      )}
+      <VoiceChat
+        subject={analysis?.subject ?? fallbackSubject}
+        context={`The student is working through practice exercises on ${weakness}`}
+      />
+    </section>
+  )
+}

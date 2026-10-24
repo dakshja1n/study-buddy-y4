@@ -13,8 +13,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'audio file is required' }, { status: 400 })
     }
 
-    console.log('Audio received:', audio.type, audio.size, 'bytes')
-
     const form = new FormData()
     // ElevenLabs Scribe accepts webm, mp4, wav, mp3 — send as-is with correct name
     const ext = audio.type.includes('mp4') ? 'mp4' : audio.type.includes('wav') ? 'wav' : 'webm'
@@ -29,16 +27,16 @@ export async function POST(req: NextRequest) {
     })
 
     const responseText = await res.text()
-    console.log('ElevenLabs STT response:', res.status, responseText)
 
     if (!res.ok) {
-      return NextResponse.json({ error: responseText }, { status: res.status })
+      console.error('ElevenLabs STT error:', res.status, responseText)
+      return NextResponse.json({ error: 'Transcription failed' }, { status: 502 })
     }
 
     const data = JSON.parse(responseText)
     return NextResponse.json({ text: data.text ?? '' })
   } catch (err) {
     console.error('listen route error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: 'Transcription failed' }, { status: 500 })
   }
 }

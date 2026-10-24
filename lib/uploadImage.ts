@@ -1,5 +1,5 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
-import { db } from './firebase'
+import { getDb } from './firebase'
 
 const MAX_DIMENSION = 1280
 const SAVE_TIMEOUT_MS = 8000
@@ -11,7 +11,7 @@ async function compressImage(file: File): Promise<{ base64: string; mimeType: st
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image()
       image.onload = () => resolve(image)
-      image.onerror = reject
+      image.onerror = () => reject(new Error('Could not read this image. Please try a JPG or PNG photo.'))
       image.src = url
     })
     const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height))
@@ -39,6 +39,9 @@ export async function uploadHomeworkImage(file: File, subject: string) {
   const { base64, mimeType } = await compressImage(file)
 
   let docId: string | null = null
+  const db = getDb()
+  if (!db) return { docId, imageBase64: base64, imageMimeType: mimeType }
+
   try {
     const submission = await withTimeout(
       addDoc(collection(db, 'submissions'), {
