@@ -29,13 +29,11 @@ Do not wrap in markdown. Return only the raw JSON object.
   ],
   "knowledgeGaps": ["Transposing terms in linear equations"],
   "encouragement": "You were close! Just remember that terms change sign when crossing the equals sign.",
-  "exercises": [
-    { "number": 1, "question": "Solve: 3x + 2 = 11", "answer": "x = 3", "skill": "Linear equations" },
-    { "number": 2, "question": "Solve: 5x - 3 = 12", "answer": "x = 3", "skill": "Linear equations" },
-    { "number": 3, "question": "Solve: 2x + 7 = 15", "answer": "x = 4", "skill": "Linear equations" }
-  ]
+  "task": "Solve for x: 2x + 5 = 13"
 }
 
+"task" must be the original assignment exactly as written in the student's homework (the question, not the student's work).
+The values above only illustrate the format; base every field on the actual submission.
 If the solution is fully correct set isCorrect to true and mistakes to [].
 If the input is incomplete or unclear, set a field "unclear": true and explain why.
 Never invent mistakes if the solution is correct.`

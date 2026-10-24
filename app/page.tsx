@@ -17,6 +17,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import useSWRImmutable from 'swr/immutable'
 import { Button } from '@/components/ui/button'
 import { uploadHomeworkImage } from '@/lib/uploadImage'
 import { readJson } from '@/lib/read-json'
@@ -252,7 +253,7 @@ type Analysis = {
   correctSolution?: string[]
   knowledgeGaps?: string[]
   encouragement?: string
-  exercises?: Exercise[]
+  task?: string
 }
 
 export default function Page() {
@@ -374,7 +375,6 @@ export default function Page() {
             analysis={analysis}
             fallbackSubject={subject}
             onBack={() => setAppState('results')}
-            onExercises={() => setAppState('exercises')}
           />
         )}
         {appState === 'exercises' && (
@@ -709,22 +709,69 @@ function isAnswerCorrect(studentAnswer: string, expectedAnswer: string) {
   return Number.isFinite(studentNumber) && Number.isFinite(expectedNumber) && studentNumber === expectedNumber
 }
 
+type ExerciseRequest = {
+  subject: string
+  topic: string
+  weakness: string
+  originalTask?: string
+  mistakes: string[]
+  difficulty: Difficulty
+  count: number
+  avoid: string[]
+}
+
+function exerciseRequestFor(analysis: Analysis | null, fallbackSubject: string) {
+  return {
+    subject: analysis?.subject ?? fallbackSubject,
+    topic: analysis?.topic ?? 'General',
+    weakness: analysis?.knowledgeGaps?.[0] ?? analysis?.topic ?? 'General practice',
+    originalTask: analysis?.task,
+    mistakes: analysis?.mistakes?.map((item) => item.issue) ?? [],
+  }
+}
+
+async function fetchExercises(request: ExerciseRequest) {
+  const response = await fetch('/api/exercises', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+  const data = await readJson<{ exercises?: Exercise[] }>(response)
+  if (!response.ok || !Array.isArray(data?.exercises) || data.exercises.length === 0) {
+    throw new Error(data?.error ?? 'Unable to create exercises. Please try again.')
+  }
+  return data.exercises
+}
+
+const PRACTICE_BATCH_SIZE = 3
+
 function PracticeState({
   analysis,
   fallbackSubject,
   onBack,
-  onExercises,
 }: {
   analysis: Analysis | null
   fallbackSubject: string
   onBack: () => void
-  onExercises: () => void
 }) {
-  const problems = analysis?.exercises ?? []
+  const baseRequest = exerciseRequestFor(analysis, fallbackSubject)
+  const avoidOriginal = baseRequest.originalTask ? [baseRequest.originalTask] : []
+  const {
+    data: firstBatch,
+    error: firstBatchError,
+    isLoading: firstBatchLoading,
+    mutate: retryFirstBatch,
+  } = useSWRImmutable(['practice', baseRequest.originalTask ?? baseRequest.topic, baseRequest.weakness], () =>
+    fetchExercises({ ...baseRequest, difficulty: 'medium', count: PRACTICE_BATCH_SIZE, avoid: avoidOriginal }),
+  )
+  const [extraProblems, setExtraProblems] = useState<Exercise[]>([])
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [moreError, setMoreError] = useState('')
   const [index, setIndex] = useState(0)
   const [answer, setAnswer] = useState('')
   const [checked, setChecked] = useState(false)
   const [revealed, setRevealed] = useState(false)
+  const problems = [...(firstBatch ?? []), ...extraProblems]
   const problem = problems[index]
   const subject = analysis?.subject ?? fallbackSubject
   const correct = problem ? isAnswerCorrect(answer, problem.answer) : false
@@ -735,29 +782,70 @@ function PracticeState({
     speak(correct ? 'Correct! Great work!' : 'Not quite. Take another look and try again.')
   }
 
-  const nextProblem = () => {
-    setIndex((current) => (current + 1) % problems.length)
+  const goTo = (nextIndex: number) => {
+    setIndex(nextIndex)
     setAnswer('')
     setChecked(false)
     setRevealed(false)
   }
 
+  const nextProblem = async () => {
+    if (index + 1 < problems.length) {
+      goTo(index + 1)
+      return
+    }
+    setLoadingMore(true)
+    setMoreError('')
+    try {
+      const fresh = await fetchExercises({
+        ...baseRequest,
+        difficulty: 'medium',
+        count: PRACTICE_BATCH_SIZE,
+        avoid: [...avoidOriginal, ...problems.map((item) => item.question)],
+      })
+      setExtraProblems((current) => [...current, ...fresh])
+      goTo(index + 1)
+    } catch (loadError) {
+      setMoreError(loadError instanceof Error ? loadError.message : 'Unable to create a new problem.')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  const backButton = (
+    <button
+      onClick={onBack}
+      className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"
+    >
+      <ChevronLeft className="size-4" />
+      Back to Results
+    </button>
+  )
+
   if (!problem) {
     return (
       <section className="mx-auto max-w-2xl">
-        <button
-          onClick={onBack}
-          className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600"
-        >
-          <ChevronLeft className="size-4" />
-          Back to Results
-        </button>
+        {backButton}
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-2xl font-bold">No practice problems yet.</h1>
-          <p className="mt-2 text-slate-500">Generate a targeted exercise sheet based on your homework instead.</p>
-          <Button onClick={onExercises} className="mt-6 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">
-            Generate Exercise Sheet
-          </Button>
+          {firstBatchLoading || !firstBatchError ? (
+            <div role="status" className="flex flex-col items-center gap-3 text-slate-500">
+              <Loader2 className="size-6 animate-spin text-indigo-600" />
+              <p className="font-medium">Gemma 4 is writing new problems based on your task...</p>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold">Could not create practice problems.</h1>
+              <p role="alert" className="mt-2 text-slate-500">
+                {firstBatchError instanceof Error ? firstBatchError.message : 'Please try again.'}
+              </p>
+              <Button
+                onClick={() => retryFirstBatch()}
+                className="mt-6 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                Try again
+              </Button>
+            </>
+          )}
         </div>
       </section>
     )
@@ -765,21 +853,18 @@ function PracticeState({
 
   return (
     <section className="mx-auto max-w-2xl">
-      <button
-        onClick={onBack}
-        className="mb-8 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 print:hidden"
-      >
-        <ChevronLeft className="size-4" />
-        Back to Results
-      </button>
+      {backButton}
       <p className="text-sm font-semibold text-indigo-600">Practice time</p>
       <h1 className="mt-1 text-3xl font-bold">Try a similar problem.</h1>
+      {analysis?.task && (
+        <p className="mt-2 text-sm text-slate-500">
+          <span className="font-semibold">Based on:</span> {analysis.task}
+        </p>
+      )}
       <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <div className="flex items-center justify-between text-sm font-medium text-slate-500">
           <span>{problem.skill || 'Practice problem'}</span>
-          <span>
-            {index + 1} / {problems.length}
-          </span>
+          <span>Problem {index + 1}</span>
         </div>
         <p className="mt-4 text-2xl font-semibold leading-relaxed">{problem.question}</p>
         <form
@@ -824,16 +909,34 @@ function PracticeState({
           </p>
         )}
         <div className="mt-4 flex gap-3">
+          {index > 0 && (
+            <Button variant="outline" className="rounded-xl" onClick={() => goTo(index - 1)} disabled={loadingMore}>
+              <ChevronLeft className="size-4" />
+              <span className="sr-only">Previous problem</span>
+            </Button>
+          )}
           <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setRevealed(true)} disabled={revealed}>
             Show answer
           </Button>
-          {problems.length > 1 && (
-            <Button variant="outline" className="flex-1 rounded-xl" onClick={nextProblem}>
-              Next problem
-              <ChevronRight className="ml-2 size-4" />
-            </Button>
-          )}
+          <Button variant="outline" className="flex-1 rounded-xl" onClick={nextProblem} disabled={loadingMore}>
+            {loadingMore ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                Next problem
+                <ChevronRight className="ml-2 size-4" />
+              </>
+            )}
+          </Button>
         </div>
+        {moreError && (
+          <p role="alert" className="mt-3 text-sm text-red-600">
+            {moreError}
+          </p>
+        )}
       </div>
       <VoiceChat subject={subject} context={`The student is practicing this problem: ${problem.question}`} />
     </section>
@@ -860,23 +963,13 @@ function ExerciseSheet({
     setError('')
     setOpenAnswers({})
     try {
-      const response = await fetch('/api/exercises', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: analysis?.subject ?? fallbackSubject,
-          topic: analysis?.topic ?? 'General',
-          weakness,
-          mistakes: analysis?.mistakes?.map((item) => item.issue) ?? [],
-          difficulty,
-          count: 5,
-        }),
+      const fresh = await fetchExercises({
+        ...exerciseRequestFor(analysis, fallbackSubject),
+        difficulty,
+        count: 5,
+        avoid: [...(analysis?.task ? [analysis.task] : []), ...exercises.map((item) => item.question)],
       })
-      const data = await readJson<{ exercises?: Exercise[] }>(response)
-      if (!response.ok || !Array.isArray(data?.exercises) || data.exercises.length === 0) {
-        throw new Error(data?.error ?? 'Unable to create exercises. Please try again.')
-      }
-      setExercises(data.exercises)
+      setExercises(fresh)
       setState('ready')
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : 'Unable to create exercises.')
