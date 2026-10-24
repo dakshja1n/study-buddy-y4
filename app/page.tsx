@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileImage,
+  Library,
   Lightbulb,
   Loader2,
   Mic,
@@ -21,6 +22,8 @@ import useSWRImmutable from 'swr/immutable'
 import { Button } from '@/components/ui/button'
 import { uploadHomeworkImage } from '@/lib/uploadImage'
 import { readJson } from '@/lib/read-json'
+import { addHistoryEntry, saveHistoryProblems, useHistory } from '@/lib/history'
+import { TopicReview } from '@/components/topic-review'
 
 async function speak(text: string): Promise<void> {
   try {
@@ -238,7 +241,7 @@ function VoiceChat({ subject, context }: { subject: string; context: string }) {
   )
 }
 
-type AppState = 'idle' | 'analyzing' | 'results' | 'practice' | 'exercises'
+type AppState = 'idle' | 'analyzing' | 'results' | 'practice' | 'exercises' | 'review'
 type Difficulty = 'easy' | 'medium' | 'hard'
 type Exercise = { number: number; question: string; answer: string; skill: string; solution?: string }
 
@@ -266,6 +269,8 @@ export default function Page() {
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState('')
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
+  const historyCount = useHistory().length
 
   useEffect(() => {
     if (!preview) return
@@ -302,6 +307,11 @@ export default function Page() {
       const data = await readJson<Analysis>(response)
       if (!response.ok || !data || data.error) throw new Error(data?.error ?? 'Unable to analyze this submission')
       setAnalysis(data)
+      setHistoryId(
+        data.unclear
+          ? null
+          : addHistoryEntry({ subject: data.subject ?? subject, topic: data.topic ?? 'General', task: data.task }),
+      )
       setAppState('results')
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : 'Something went wrong. Please try again.')
@@ -315,6 +325,7 @@ export default function Page() {
     setAppState('idle')
     setError('')
     setAnalysis(null)
+    setHistoryId(null)
   }
   const showResults = appState === 'results' || appState === 'practice' || appState === 'exercises'
 
@@ -337,12 +348,25 @@ export default function Page() {
               <p className="text-xs text-slate-500">Your homework, understood.</p>
             </div>
           </div>
-          {showResults && (
-            <Button variant="ghost" onClick={reset}>
-              <RotateCcw className="mr-2 size-4" />
-              New problem
-            </Button>
-          )}
+          <div className="flex items-center gap-1">
+            {appState !== 'review' && appState !== 'analyzing' && (
+              <Button variant="ghost" onClick={() => setAppState('review')}>
+                <Library className="mr-2 size-4" />
+                My topics
+                {historyCount > 0 && (
+                  <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                    {historyCount}
+                  </span>
+                )}
+              </Button>
+            )}
+            {showResults && (
+              <Button variant="ghost" onClick={reset}>
+                <RotateCcw className="mr-2 size-4" />
+                New problem
+              </Button>
+            )}
+          </div>
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14">
@@ -374,9 +398,11 @@ export default function Page() {
           <PracticeState
             analysis={analysis}
             fallbackSubject={subject}
+            historyId={historyId}
             onBack={() => setAppState('results')}
           />
         )}
+        {appState === 'review' && <TopicReview onBack={reset} />}
         {appState === 'exercises' && (
           <ExerciseSheet analysis={analysis} fallbackSubject={subject} onBack={() => setAppState('results')} />
         )}
@@ -748,10 +774,12 @@ const PRACTICE_BATCH_SIZE = 3
 function PracticeState({
   analysis,
   fallbackSubject,
+  historyId,
   onBack,
 }: {
   analysis: Analysis | null
   fallbackSubject: string
+  historyId: string | null
   onBack: () => void
 }) {
   const baseRequest = exerciseRequestFor(analysis, fallbackSubject)
@@ -775,6 +803,10 @@ function PracticeState({
   const problem = problems[index]
   const subject = analysis?.subject ?? fallbackSubject
   const correct = problem ? isAnswerCorrect(answer, problem.answer) : false
+
+  useEffect(() => {
+    if (historyId && firstBatch?.length) saveHistoryProblems(historyId, firstBatch)
+  }, [historyId, firstBatch])
 
   const checkAnswer = () => {
     if (!problem || !answer.trim()) return
@@ -804,6 +836,7 @@ function PracticeState({
         avoid: [...avoidOriginal, ...problems.map((item) => item.question)],
       })
       setExtraProblems((current) => [...current, ...fresh])
+      if (historyId) saveHistoryProblems(historyId, fresh)
       goTo(index + 1)
     } catch (loadError) {
       setMoreError(loadError instanceof Error ? loadError.message : 'Unable to create a new problem.')
