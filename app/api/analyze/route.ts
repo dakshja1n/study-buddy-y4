@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateWithGemma, parseModelJson } from '@/lib/gemma'
+import { gatewayErrorMessage, generateWithGemma, parseModelJson } from '@/lib/gemma'
 
 const MAX_IMAGE_BASE64_LENGTH = 8_000_000
 
@@ -81,6 +81,9 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error('analyze route error:', err)
-    return NextResponse.json({ error: 'Unable to analyze this submission right now. Please try again.' }, { status: 500 })
+    return NextResponse.json(
+      { error: gatewayErrorMessage(err, 'Unable to analyze this submission right now. Please try again.') },
+      { status: 500 },
+    )
   }
 }
